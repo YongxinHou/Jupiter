@@ -21,6 +21,15 @@ Go >= 1.22, standard library only.
 | `public/style.css` | Styling, mobile layout |
 | `public/app.js` | Canvas scene, chibi monks, animations, WebAudio (木鱼/钟/环境音, all synthesized), networking, localStorage for personal counts |
 
+## Incense & mala
+
+- 点香 opens a picker for the **wanche** mugwort incense range: 艾焰 朱红 · 艾虚 烟灰 · 艾青 艾绿 · 艾檀 檀褐 · 艾月 月白 (`INCENSE` in `app.js`; keep `numIncense` in `main.go` in sync).
+- 念珠 asks for a mala size the first time (18 / 21 / 27 / 54 / 108); tap 念珠 · 换串 in the top panel to change it.
+
+## Preview build
+
+`python3 tools/build_preview.py out.html` bundles everything into one page that runs in solo mode.
+
 If the server isn't reachable (e.g. hosted as static files only), the client falls back to solo mode.
 
 ## Controls

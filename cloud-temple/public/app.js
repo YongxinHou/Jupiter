@@ -18,7 +18,25 @@
   };
   const daily = store.get('daily', {});
   let myBows = daily.date === today ? daily.bows : 0;
-  let myBeads = store.get('beads', 0);
+  let myBeads = store.get('beads', 0);   // lifetime bead count
+
+  // wanche mugwort incense range
+  const INCENSE = [
+    { name: '艾焰', tone: '朱红', color: '#c0392b', note: '一点火色，暖' },
+    { name: '艾虚', tone: '烟灰', color: '#8d8a83', note: '像山里的晨雾，静' },
+    { name: '艾青', tone: '艾绿', color: '#6b8a4f', note: '新采艾叶的颜色' },
+    { name: '艾檀', tone: '檀褐', color: '#7a4a2a', note: '沉一点，稳一点' },
+    { name: '艾月', tone: '月白', color: '#e6dcc4', note: '月下的素色' },
+  ];
+  const MALAS = [
+    { n: 18, label: '手串' }, { n: 21, label: '二十一' }, { n: 27, label: '二十七' },
+    { n: 54, label: '半串' }, { n: 108, label: '全串' },
+  ];
+  let incenseChoice = clampIdx(store.get('incense', 0), INCENSE.length);
+  let malaSize = MALAS.some((m) => m.n === store.get('mala', 0)) ? store.get('mala', 0) : 0; // 0 = not chosen yet
+  let beadPos = store.get('beadPos', 0);
+  let rounds = store.get('rounds', 0);
+  function clampIdx(i, n) { i = Number(i) | 0; return i >= 0 && i < n ? i : 0; }
 
   // ---------------- state ----------------
   const me = { id: null, token: null, name: '', robe: '#8a8f98', x: 500, y: 560, tx: 500, ty: 560, act: null, actT: 0, face: 1 };
@@ -28,7 +46,7 @@
   const SCALE = 1.5;                // character size multiplier
   const WHEEL_Y = 350;              // prayer wheels stand along the back of the floor
   const wheels = [225, 265, 305, 345, 655, 695, 735, 775].map((x) => ({ x, a: Math.random() * 6, vel: 0 }));
-  const sticks = [];                // incense in the burner: { off, born }
+  const sticks = [];                // incense in the burner: { off, born, c }
   const STICK_LIFE = 90;            // seconds an incense stick burns
   let stats = { bows: 0, here: 1, online: 1 };
   let online = false;
@@ -159,7 +177,8 @@
       const d = JSON.parse(e.data), o = others.get(d.id);
       if (!o) return;
       startAct(o, d.act);
-      if (d.act === 'incense') addStick();
+      if (d.act === 'incense') { o.incense = clampIdx(d.n, INCENSE.length); addStick(o.incense); }
+      if (d.act === 'beads') o.mala = d.n;
       if (d.act === 'wheel' && wheels[d.n]) spinWheel(d.n);
     });
     es.addEventListener('stats', (e) => { Object.assign(stats, JSON.parse(e.data)); renderStats(); });
@@ -201,8 +220,8 @@
 
   function startAct(p, act) { p.act = act; p.actT = 0; }
 
-  function addStick() {
-    sticks.push({ off: (Math.random() - 0.5) * 30, born: performance.now() / 1000 });
+  function addStick(c) {
+    sticks.push({ off: (Math.random() - 0.5) * 30, born: performance.now() / 1000, c });
     if (sticks.length > 15) sticks.shift();
   }
 
@@ -231,7 +250,7 @@
     floater(me.x, me.y - 135, '转经 +1', '#e8c98a');
   }
 
-  function doAct(act) {
+  function doAct(act, n) {
     initAudio();
     if (act === 'moktak') {
       moktak();
@@ -245,9 +264,13 @@
       else goToWheel(i);
       return;
     }
+    if (act === 'incense' && n === undefined) return openSheet('incense');
+    if (act === 'beads' && !malaSize) return openSheet('mala');
     if (me.act && me.actT < ACT_LEN[me.act] * 0.6) return; // let animation breathe
     startAct(me, act);
-    post({ type: 'act', act });
+    if (act === 'incense') me.incense = n;
+    if (act === 'beads') me.mala = malaSize;
+    post({ type: 'act', act, n: act === 'incense' ? n : act === 'beads' ? malaSize : 0 });
     if (act === 'bow' || act === 'prostrate') {
       myBows++; stats.bows++;
       store.set('daily', { date: today, bows: myBows });
@@ -264,14 +287,20 @@
       bell(392, 0.08);
       floater(me.x, me.y - 135, '🙏', '#fff');
     } else if (act === 'incense') {
-      addStick();
+      const inc = INCENSE[n];
+      addStick(n);
       bell(330, 0.06);
-      floater(me.x, me.y - 135, '一炷心香', '#f0c9a0');
+      floater(me.x, me.y - 135, `一炷${inc.name}香`, '#f0c9a0');
+      toast(`wanche · ${inc.name}香 已点燃`);
     } else if (act === 'beads') {
-      myBeads++;
-      store.set('beads', myBeads);
+      myBeads++; beadPos++;
       tick();
-      if (myBeads % 108 === 0) { bell(196, 0.3); toast('一百零八颗，圆满'); }
+      if (beadPos >= malaSize) {
+        beadPos = 0; rounds++;
+        bell(196, 0.3);
+        toast(`${malaSize} 颗一圈，圆满`);
+      }
+      store.set('beads', myBeads); store.set('beadPos', beadPos); store.set('rounds', rounds);
     }
     renderStats();
   }
@@ -283,7 +312,7 @@
   }
   function renderStats() {
     $('#myBows').textContent = myBows;
-    $('#myBeads').textContent = myBeads % 108 + (myBeads >= 108 ? ` ·${Math.floor(myBeads / 108)}轮` : '');
+    $('#myBeads').textContent = malaSize ? `${beadPos}/${malaSize}` + (rounds ? ` ·${rounds}圈` : '') : '未选';
     $('#allBows').textContent = (stats.bows || 0).toLocaleString();
     $('#here').textContent = stats.here || 1;
     $('#online').textContent = stats.online || 1;
@@ -296,6 +325,62 @@
     toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
   }
   function floater(x, y, text, color) { floaters.push({ x, y, text, color, t: 0 }); }
+
+  // ---------------- picker sheet ----------------
+  let sheetMode = null, sheetPick = 0;
+  function openSheet(mode) {
+    sheetMode = mode;
+    sheetPick = mode === 'incense' ? incenseChoice : Math.max(0, MALAS.findIndex((m) => m.n === malaSize));
+    if (mode === 'mala' && !malaSize) sheetPick = MALAS.length - 1;
+    $('#sheetBrand').hidden = mode !== 'incense';
+    $('#sheetTitle').textContent = mode === 'incense' ? '选一炷艾香' : '选一串念珠';
+    const opts = $('#sheetOpts');
+    opts.innerHTML = '';
+    const list = mode === 'incense' ? INCENSE : MALAS;
+    list.forEach((o, i) => {
+      const b = document.createElement('button');
+      b.className = 'opt';
+      b.innerHTML = mode === 'incense'
+        ? `<span class="stick" style="--c:${o.color}"></span><b>${o.name}</b><small>${o.tone}</small>`
+        : `<span class="num">${o.n}</span><small>${o.label}</small>`;
+      b.addEventListener('click', () => { sheetPick = i; renderSheet(); });
+      opts.appendChild(b);
+    });
+    renderSheet();
+    $('#sheet').hidden = false;
+    $('#sheetGo').focus();
+  }
+  function renderSheet() {
+    [...$('#sheetOpts').children].forEach((b, i) => b.setAttribute('aria-pressed', i === sheetPick));
+    if (sheetMode === 'incense') {
+      const o = INCENSE[sheetPick];
+      $('#sheetNote').textContent = `${o.name} · ${o.note}`;
+      $('#sheetGo').textContent = `点一炷${o.name}香`;
+    } else {
+      const o = MALAS[sheetPick];
+      $('#sheetNote').textContent = `${o.n} 颗 · 每点一次「念珠」拨一颗，拨满一圈响一声钟`;
+      $('#sheetGo').textContent = `就用这串`;
+    }
+  }
+  function closeSheet() { $('#sheet').hidden = true; sheetMode = null; }
+  $('#sheetGo').addEventListener('click', () => {
+    if (sheetMode === 'incense') {
+      incenseChoice = sheetPick; store.set('incense', incenseChoice);
+      closeSheet();
+      doAct('incense', incenseChoice);
+    } else {
+      const n = MALAS[sheetPick].n;
+      if (n !== malaSize) { malaSize = n; beadPos = 0; rounds = 0; }
+      store.set('mala', malaSize); store.set('beadPos', beadPos); store.set('rounds', rounds);
+      me.mala = malaSize;
+      closeSheet();
+      toast(`换上一串 ${n} 颗的念珠`);
+      renderStats();
+    }
+  });
+  $('#sheetX').addEventListener('click', closeSheet);
+  $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
+  $('#malaBtn').addEventListener('click', () => openSheet('mala'));
 
   document.querySelectorAll('.actions [data-act]').forEach((b) =>
     b.addEventListener('click', () => doAct(b.dataset.act)));
@@ -326,6 +411,7 @@
   addEventListener('keydown', (e) => {
     if ($('#temple').hidden) return;
     const k = e.key.toLowerCase();
+    if (!$('#sheet').hidden) { if (k === 'escape') closeSheet(); return; }
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(k)) { keys.add(k); e.preventDefault(); }
     if (k === '1') doAct('palm');
     if (k === '2' || k === ' ') { doAct('bow'); e.preventDefault(); }
@@ -436,6 +522,9 @@
     // altar table
     ctx.fillStyle = '#6b3a24'; ctx.fillRect(380, 285, 240, 28);
     ctx.fillStyle = '#4a2817'; ctx.fillRect(390, 313, 220, 14);
+    ctx.font = 'italic 500 13px "Cormorant Garamond", Georgia, serif';
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(217,167,74,.75)';
+    ctx.fillText('w a n c h e', 500, 304);
 
     // candles
     [410, 590].forEach((x) => {
@@ -453,10 +542,10 @@
     const now = t;
     for (let i = sticks.length - 1; i >= 0; i--) if (now - sticks[i].born > STICK_LIFE) sticks.splice(i, 1);
     const all = [{ off: -6, burn: 0 }, { off: 0, burn: 0 }, { off: 6, burn: 0 }]
-      .concat(sticks.map((s) => ({ off: s.off, burn: (now - s.born) / STICK_LIFE })));
+      .concat(sticks.map((s) => ({ off: s.off, burn: (now - s.born) / STICK_LIFE, color: INCENSE[s.c]?.color })));
     all.forEach((s) => {
       const tipX = 500 + s.off * 1.3, tipY = 252 + s.burn * 18;
-      ctx.strokeStyle = '#a8433a'; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = s.color || '#a8433a'; ctx.lineWidth = s.color ? 2 : 1.5;
       ctx.beginPath(); ctx.moveTo(500 + s.off, 276); ctx.lineTo(tipX, tipY); ctx.stroke();
       ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.arc(tipX, tipY, 1.6, 0, 7); ctx.fill();
       if (Math.random() < 0.1) smoke.push({ x: tipX, y: tipY - 2, t: 0 });
@@ -628,7 +717,7 @@
     } else if (a === 'incense') {
       handsY = -28 * bodyH + bob - Math.sin(k * Math.PI) * 16;
       ctx.beginPath(); ctx.ellipse(0, handsY, 4, 7, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#a8433a'; ctx.lineWidth = 2;
+      ctx.strokeStyle = INCENSE[p.incense || 0].color; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.moveTo(0, handsY - 4); ctx.lineTo(0, handsY - 30); ctx.stroke();
       ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.arc(0, handsY - 31, 2.2, 0, 7); ctx.fill();
       if (Math.random() < 0.25) smoke.push({ x: p.x, y: p.y + (handsY - 33) * depth, t: 0 });
@@ -642,10 +731,13 @@
       ctx.beginPath(); ctx.ellipse(0, -26 * bodyH + bob, 4, 7, 0, 0, 7); ctx.fill();
     }
     if (a === 'beads') {
-      for (let i = 0; i < 9; i++) {
-        const ang = i / 9 * Math.PI * 2 + k * 2.5;
+      const n = p.mala || 108;
+      const vis = Math.max(9, Math.min(36, Math.round(n / 3)));   // drawn beads
+      const r = 6 + vis * 0.4;
+      for (let i = 0; i < vis; i++) {
+        const ang = i / vis * Math.PI * 2 + k * 2.5;
         ctx.fillStyle = i === 0 ? '#c8963f' : '#5b3a26';
-        ctx.beginPath(); ctx.arc(Math.cos(ang) * 9, -20 + bob + Math.sin(ang) * 5, 2.2, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(Math.cos(ang) * r, -20 + bob + r * 0.35 + Math.sin(ang) * r * 0.55, n > 54 ? 1.8 : 2.2, 0, 7); ctx.fill();
       }
     }
 

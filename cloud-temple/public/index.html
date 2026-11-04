@@ -7,6 +7,8 @@
   <meta name="description" content="一座在线的小寺。不说话，只合十、礼拜、转念珠。">
   <meta name="theme-color" content="#1d1a17">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪷</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Noto+Serif+SC:wght@400;600&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,6 +19,7 @@
       <p class="sub">一座不说话的小寺</p>
       <p class="desc">这里没有聊天。<br>你只需要走进去，合十，礼拜，转一转念珠。</p>
       <button id="enter">入 寺</button>
+      <p class="gate-brand">艾香 · <span class="brand">wanche</span></p>
       <p class="hint">建议戴上耳机 · 点击地面行走 · 点转经筒去转经 · 键盘 WASD / 数字 1–7</p>
     </div>
   </section>
@@ -32,7 +35,7 @@
 
     <div class="merit">
       <div><b id="myBows">0</b><small>今日礼拜</small></div>
-      <div><b id="myBeads">0</b><small>念珠</small></div>
+      <button id="malaBtn" title="更换念珠"><b id="myBeads">0</b><small>念珠 · 换串</small></button>
       <div><b id="allBows">0</b><small>寺中总礼拜</small></div>
     </div>
 
@@ -48,6 +51,22 @@
     </nav>
 
     <div id="toast"></div>
+
+    <!-- picker sheet: incense colour / mala size -->
+    <div id="sheet" hidden>
+      <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+        <header>
+          <div>
+            <div class="brand" id="sheetBrand">wanche</div>
+            <h2 id="sheetTitle"></h2>
+          </div>
+          <button class="sheet-x" id="sheetX" aria-label="关闭">×</button>
+        </header>
+        <div class="opts" id="sheetOpts"></div>
+        <p class="sheet-note" id="sheetNote"></p>
+        <button class="sheet-go" id="sheetGo"></button>
+      </div>
+    </div>
   </main>
 
   <script src="app.js"></script>

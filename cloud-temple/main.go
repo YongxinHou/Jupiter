@@ -23,11 +23,12 @@ import (
 var publicFS embed.FS
 
 const (
-	worldW    = 1000.0
-	worldH    = 700.0
-	floorY    = 330.0
-	dataFile  = "data.json"
-	numWheels = 8 // must match the wheels array in public/app.js
+	worldW     = 1000.0
+	worldH     = 700.0
+	floorY     = 330.0
+	dataFile   = "data.json"
+	numWheels  = 8 // must match the wheels array in public/app.js
+	numIncense = 5 // must match INCENSE in public/app.js
 )
 
 var (
@@ -255,12 +256,20 @@ func (t *Temple) handleAction(w http.ResponseWriter, r *http.Request) {
 			case "palm":
 				t.stats.Palms++
 			case "beads":
-				t.stats.Beads++
+				if msg.N < 1 || msg.N > 108 {
+					counted = false
+				} else {
+					t.stats.Beads++
+				}
 			case "prostrate":
 				t.stats.Bows++
 				t.stats.Prostrations++
 			case "incense":
-				t.stats.Incense++
+				if msg.N < 0 || msg.N >= numIncense {
+					counted = false
+				} else {
+					t.stats.Incense++
+				}
 			case "wheel":
 				if msg.N < 0 || msg.N >= numWheels {
 					counted = false
