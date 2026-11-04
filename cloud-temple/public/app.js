@@ -27,7 +27,7 @@
   const smoke = [];
   const SCALE = 1.5;                // character size multiplier
   const WHEEL_Y = 350;              // prayer wheels stand along the back of the floor
-  const wheels = [195, 235, 275, 315, 685, 725, 765, 805].map((x) => ({ x, a: Math.random() * 6, vel: 0 }));
+  const wheels = [225, 265, 305, 345, 655, 695, 735, 775].map((x) => ({ x, a: Math.random() * 6, vel: 0 }));
   const sticks = [];                // incense in the burner: { off, born }
   const STICK_LIFE = 90;            // seconds an incense stick burns
   let stats = { bows: 0, here: 1, online: 1 };
@@ -235,6 +235,7 @@
     initAudio();
     if (act === 'moktak') {
       moktak();
+      me.mokHit = 0; me.mokShow = 5;
       floater(me.x, me.y - 135, '咚', '#e8c98a');
       return;
     }
@@ -355,12 +356,16 @@
     view.dpr = Math.min(devicePixelRatio || 1, 2);
     const cw = innerWidth, ch = innerHeight;
     canvas.width = cw * view.dpr; canvas.height = ch * view.dpr;
-    let s = Math.min(cw / W, ch / H);
-    if (cw < ch) s = Math.min(ch / H * 0.8, cw / 560); // portrait: zoom in, follow player
+    // the scene lives between the merit panel and the action bar so no UI covers it
+    const top = $('.merit').getBoundingClientRect().bottom + 6;
+    const bottom = $('.actions').getBoundingClientRect().top - 6;
+    const availH = Math.max(240, bottom - top);
+    let s = Math.min(cw / W, availH / H);
+    if (cw < ch) s = Math.min(availH / H, cw / 600); // portrait: zoom in, follow player
     view.s = s;
     view.vw = Math.min(W, cw / s);
     view.ox = Math.max(0, (cw - W * s) / 2);
-    view.oy = (ch - H * s) / 2;
+    view.oy = top + (availH - H * s) / 2;
   }
   addEventListener('resize', resize);
 
@@ -531,6 +536,42 @@
     }
   }
 
+  // personal wooden fish, drawn just in front of the player while it's being struck
+  function drawMoktak() {
+    const d = (0.8 + (me.y - FLOOR_Y) / (H - FLOOR_Y) * 0.45) * SCALE;
+    const hit = me.mokHit;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, me.mokShow / 0.6);
+    ctx.translate(me.x, me.y + 16 * d);
+    ctx.scale(d, d);
+    // cushion
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(0, 6, 30, 8, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9e3b2c'; ctx.beginPath(); ctx.ellipse(0, 2, 28, 8, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d9a74a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(0, 2, 20, 5, 0, 0, 7); ctx.stroke();
+    // body squashes a little on each strike
+    const squash = 1 - 0.1 * Math.exp(-hit * 18);
+    ctx.save(); ctx.translate(0, -2); ctx.scale(1 + (1 - squash) * 0.5, squash);
+    ctx.fillStyle = '#7a3f1d'; ctx.beginPath(); ctx.ellipse(0, -14, 24, 16, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,170,.22)'; ctx.beginPath(); ctx.ellipse(-8, -21, 10, 5, -0.3, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#3a1a0b'; ctx.lineWidth = 3; ctx.lineCap = 'round';           // mouth slit
+    ctx.beginPath(); ctx.moveTo(-15, -9); ctx.quadraticCurveTo(0, -3, 15, -9); ctx.stroke();
+    ctx.fillStyle = '#3a1a0b';                                                         // fish-scale dots
+    [[-8, -18], [0, -20], [8, -18]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 1.4, 0, 7); ctx.fill(); });
+    ctx.restore();
+    // ripple
+    if (hit < 0.5) {
+      ctx.strokeStyle = `rgba(255,215,140,${0.6 * (1 - hit / 0.5)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, -14, 26 + hit * 40, 18 + hit * 28, 0, 0, 7); ctx.stroke();
+    }
+    // mallet: touches the top on a hit, then lifts back up
+    ctx.translate(30, -46);
+    ctx.rotate(-0.55 * (1 - Math.exp(-hit * 12)));
+    ctx.strokeStyle = '#c9a26b'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-22, 14); ctx.stroke();
+    ctx.fillStyle = '#5b3a26'; ctx.beginPath(); ctx.arc(-24, 15, 5.5, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
   function drawMonk(p, t, isMe) {
     const depth = (0.8 + (p.y - FLOOR_Y) / (H - FLOOR_Y) * 0.45) * SCALE;
     const moving = Math.hypot(p.tx - p.x, p.ty - p.y) > 2;
@@ -689,6 +730,7 @@
     }
 
     stepEntity(me, dt, SPEED);
+    if (me.mokShow > 0) { me.mokShow -= dt; me.mokHit += dt; }
     others.forEach((o) => stepEntity(o, dt, SPEED * 1.4));
     syncMove(now);
 
@@ -706,6 +748,7 @@
     wheels.forEach((w) => { w.a += w.vel * dt; w.vel *= Math.exp(-0.45 * dt); });
     const items = wheels.map((w) => ({ y: WHEEL_Y, draw: () => drawWheel(w) }));
     [me, ...others.values()].forEach((p) => items.push({ y: p.y, draw: () => drawMonk(p, t, p === me) }));
+    if (me.mokShow > 0) items.push({ y: me.y + 0.5, draw: drawMoktak });
     items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
     drawFloaters(dt);
 
