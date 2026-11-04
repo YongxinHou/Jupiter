@@ -6,16 +6,17 @@
 
 ```bash
 cd cloud-temple
-npm start            # http://localhost:3000   (PORT / ROOM_CAP env vars optional)
+go run .                       # http://localhost:3000   (PORT / ROOM_CAP env vars optional)
+go build -o cloud-temple .     # single binary, frontend embedded via go:embed
 ```
 
-No dependencies. Node >= 18.
+Go >= 1.22, standard library only.
 
 ## Structure
 
 | File | What |
 |---|---|
-| `server.js` | HTTP server: static files, `GET /events` (SSE presence stream), `POST /action` (move/act), `GET /stats`. Rooms capped at `ROOM_CAP` (default 100). Global merit counter saved to `data.json`. |
+| `main.go` | Go HTTP server (frontend embedded): static files, `GET /events` (SSE presence stream), `POST /action` (move/act), `GET /stats`. Rooms capped at `ROOM_CAP` (default 100). Global merit counter saved to `data.json`. |
 | `public/index.html` | Gate screen + temple HUD |
 | `public/style.css` | Styling, mobile layout |
 | `public/app.js` | Canvas scene, chibi monks, animations, WebAudio (木鱼/钟/环境音, all synthesized), networking, localStorage for personal counts |

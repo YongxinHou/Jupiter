@@ -1,9 +1,0 @@
-{
-  "name": "cloud-temple",
-  "version": "1.0.0",
-  "description": "云寺 — a quiet online temple. No chat, just bow.",
-  "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
-  "license": "MIT"
-}
