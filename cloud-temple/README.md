@@ -26,4 +26,5 @@ If the server isn't reachable (e.g. hosted as static files only), the client fal
 ## Controls
 
 - Click / tap floor to walk, or WASD / arrow keys
-- `1` 合十 · `2` / Space 礼拜 · `3` 念珠 · `4` 木鱼
+- Click a prayer wheel to walk over and spin it
+- `1` 合十 · `2` / Space 礼拜 · `3` 长磕头 · `4` 念珠 · `5` 点香 · `6` 转经 · `7` 木鱼

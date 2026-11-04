@@ -58,9 +58,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--panel); border-radius: 999px; font-size: 13px; color: var(--muted); opacity: 0; transition: opacity .4s; pointer-events: none; white-space: nowrap; }
 #toast.show { opacity: 1; }
 
-@media (max-width: 480px) {
-  .actions button { width: 54px; height: 58px; }
+@media (max-width: 680px) {
+  .actions { display: grid; grid-template-columns: repeat(4, 1fr); width: calc(100% - 32px); gap: 4px; }
+  .actions button { width: auto; height: 56px; }
   .actions i { font-size: 21px; }
+  #toast { bottom: 170px; }
+}
+@media (max-width: 480px) {
   .hud { font-size: 12px; }
   .merit { gap: 12px; padding: 6px 12px; }
 }

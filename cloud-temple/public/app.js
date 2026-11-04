@@ -25,6 +25,11 @@
   const others = new Map();
   const floaters = [];
   const smoke = [];
+  const SCALE = 1.5;                // character size multiplier
+  const WHEEL_Y = 350;              // prayer wheels stand along the back of the floor
+  const wheels = [195, 235, 275, 315, 685, 725, 765, 805].map((x) => ({ x, a: Math.random() * 6, vel: 0 }));
+  const sticks = [];                // incense in the burner: { off, born }
+  const STICK_LIFE = 90;            // seconds an incense stick burns
   let stats = { bows: 0, here: 1, online: 1 };
   let online = false;
 
@@ -152,7 +157,10 @@
     });
     es.addEventListener('act', (e) => {
       const d = JSON.parse(e.data), o = others.get(d.id);
-      if (o) startAct(o, d.act);
+      if (!o) return;
+      startAct(o, d.act);
+      if (d.act === 'incense') addStick();
+      if (d.act === 'wheel' && wheels[d.n]) spinWheel(d.n);
     });
     es.addEventListener('stats', (e) => { Object.assign(stats, JSON.parse(e.data)); renderStats(); });
     es.onerror = () => { if (!welcomed) { clearTimeout(fallback); es.close(); solo(); } };
@@ -188,31 +196,76 @@
   }
 
   // ---------------- actions ----------------
-  const ACT_LEN = { bow: 1.8, palm: 1.4, beads: 0.8 };
+  const ACT_LEN = { bow: 1.8, palm: 1.4, beads: 0.8, prostrate: 4.2, incense: 2.2, wheel: 1.2 };
   const WORDS = ['愿你今日轻松', '放下一点点', '慢慢来', '呼吸', '一切都会过去', '此刻安好', '心如止水', '辛苦了'];
 
   function startAct(p, act) { p.act = act; p.actT = 0; }
+
+  function addStick() {
+    sticks.push({ off: (Math.random() - 0.5) * 30, born: performance.now() / 1000 });
+    if (sticks.length > 15) sticks.shift();
+  }
+
+  function spinWheel(i) {
+    wheels[i].vel = Math.min(wheels[i].vel + 7, 14);
+  }
+
+  function nearestWheel() {
+    let best = 0;
+    wheels.forEach((w, i) => { if (Math.abs(w.x - me.x) < Math.abs(wheels[best].x - me.x)) best = i; });
+    return best;
+  }
+
+  // walk to a wheel; the spin fires on arrival (see stepEntity)
+  function goToWheel(i) {
+    me.tx = wheels[i].x; me.ty = WHEEL_Y + 24; me.pending = i;
+  }
+
+  function doWheel(i) {
+    me.pending = null;
+    me.face = 1;
+    startAct(me, 'wheel');
+    spinWheel(i);
+    post({ type: 'act', act: 'wheel', n: i });
+    [0, 0.12, 0.24].forEach((d) => setTimeout(tick, d * 1000));
+    floater(me.x, me.y - 135, '转经 +1', '#e8c98a');
+  }
 
   function doAct(act) {
     initAudio();
     if (act === 'moktak') {
       moktak();
-      floater(me.x, me.y - 90, '咚', '#e8c98a');
+      floater(me.x, me.y - 135, '咚', '#e8c98a');
+      return;
+    }
+    if (act === 'wheel') {
+      const i = nearestWheel();
+      if (Math.abs(me.x - wheels[i].x) < 8 && Math.abs(me.y - (WHEEL_Y + 24)) < 8) doWheel(i);
+      else goToWheel(i);
       return;
     }
     if (me.act && me.actT < ACT_LEN[me.act] * 0.6) return; // let animation breathe
     startAct(me, act);
     post({ type: 'act', act });
-    if (act === 'bow') {
+    if (act === 'bow' || act === 'prostrate') {
       myBows++; stats.bows++;
       store.set('daily', { date: today, bows: myBows });
       if (!online) store.set('soloTotal', stats.bows);
-      setTimeout(() => bell(262, 0.18), 700);
-      floater(me.x, me.y - 90, '功德 +1', '#d9a74a');
+      if (act === 'bow') {
+        setTimeout(() => bell(262, 0.18), 700);
+        floater(me.x, me.y - 135, '功德 +1', '#d9a74a');
+      } else {
+        setTimeout(() => bell(196, 0.22), 1600);
+        floater(me.x, me.y - 135, '五体投地 · 功德 +1', '#d9a74a');
+      }
       if (myBows % 10 === 0) toast(WORDS[Math.random() * WORDS.length | 0]);
     } else if (act === 'palm') {
       bell(392, 0.08);
-      floater(me.x, me.y - 90, '🙏', '#fff');
+      floater(me.x, me.y - 135, '🙏', '#fff');
+    } else if (act === 'incense') {
+      addStick();
+      bell(330, 0.06);
+      floater(me.x, me.y - 135, '一炷心香', '#f0c9a0');
     } else if (act === 'beads') {
       myBeads++;
       store.set('beads', myBeads);
@@ -275,8 +328,11 @@
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(k)) { keys.add(k); e.preventDefault(); }
     if (k === '1') doAct('palm');
     if (k === '2' || k === ' ') { doAct('bow'); e.preventDefault(); }
-    if (k === '3') doAct('beads');
-    if (k === '4') doAct('moktak');
+    if (k === '3') doAct('prostrate');
+    if (k === '4') doAct('beads');
+    if (k === '5') doAct('incense');
+    if (k === '6') doAct('wheel');
+    if (k === '7') doAct('moktak');
   });
   addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -284,6 +340,9 @@
     const r = canvas.getBoundingClientRect();
     const wx = (e.clientX - r.left - view.ox) / view.s + view.cx;
     const wy = (e.clientY - r.top - view.oy) / view.s;
+    const hit = wheels.findIndex((w) => Math.abs(wx - w.x) < 20 && wy > WHEEL_Y - 75 && wy < WHEEL_Y + 10);
+    if (hit >= 0) { initAudio(); goToWheel(hit); return; }
+    me.pending = null;
     me.tx = clamp(wx, 40, W - 40);
     me.ty = clamp(wy, FLOOR_Y, H - 30);
   });
@@ -386,9 +445,17 @@
     // incense burner + smoke
     ctx.fillStyle = '#8a7350'; ctx.beginPath(); ctx.ellipse(500, 283, 22, 8, 0, 0, 7); ctx.fill();
     ctx.fillRect(478, 275, 44, 8);
-    ctx.strokeStyle = '#b44'; ctx.lineWidth = 1.5;
-    [-6, 0, 6].forEach((dx) => { ctx.beginPath(); ctx.moveTo(500 + dx, 276); ctx.lineTo(500 + dx * 1.3, 252); ctx.stroke(); });
-    if (Math.random() < 0.3) smoke.push({ x: 500 + (Math.random() - 0.5) * 12, y: 250, t: 0 });
+    const now = t;
+    for (let i = sticks.length - 1; i >= 0; i--) if (now - sticks[i].born > STICK_LIFE) sticks.splice(i, 1);
+    const all = [{ off: -6, burn: 0 }, { off: 0, burn: 0 }, { off: 6, burn: 0 }]
+      .concat(sticks.map((s) => ({ off: s.off, burn: (now - s.born) / STICK_LIFE })));
+    all.forEach((s) => {
+      const tipX = 500 + s.off * 1.3, tipY = 252 + s.burn * 18;
+      ctx.strokeStyle = '#a8433a'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(500 + s.off, 276); ctx.lineTo(tipX, tipY); ctx.stroke();
+      ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.arc(tipX, tipY, 1.6, 0, 7); ctx.fill();
+      if (Math.random() < 0.1) smoke.push({ x: tipX, y: tipY - 2, t: 0 });
+    });
 
     // pillars
     [[150, 0], [850, 0]].forEach(([x]) => {
@@ -438,27 +505,64 @@
     }
   }
 
+  function drawWheel(w) {
+    const x = w.x, b = WHEEL_Y;
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.ellipse(x, b, 16, 5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3b2a1e'; ctx.fillRect(x - 2.5, b - 14, 5, 14);          // post
+    const top = b - 66, h = 50, r = 14;
+    ctx.fillStyle = '#b8862f'; ctx.fillRect(x - r, top, r * 2, h);           // drum
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x + r * 0.35, top, r * 0.65, h);
+    for (let i = 0; i < 6; i++) {                                              // spinning script bands
+      const ang = w.a + i * Math.PI / 3, c = Math.cos(ang);
+      if (c <= 0) continue;
+      const sx = x + Math.sin(ang) * r * 0.85;
+      ctx.fillStyle = `rgba(90,40,20,${0.35 + c * 0.5})`;
+      ctx.fillRect(sx - c * 1.6, top + 10, c * 3.2, h - 20);
+    }
+    ctx.fillStyle = '#9e3b2c'; ctx.fillRect(x - r, top, r * 2, 6); ctx.fillRect(x - r, top + h - 6, r * 2, 6);
+    ctx.fillStyle = '#d9a74a';
+    ctx.beginPath(); ctx.ellipse(x, top, r, 4, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, top - 6, 3.5, 0, 7); ctx.fill();             // finial
+    ctx.fillRect(x - 0.8, top - 6, 1.6, 6);
+    if (w.vel > 1) {                                                           // motion glow
+      ctx.strokeStyle = `rgba(255,215,140,${Math.min(0.5, w.vel / 28)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(x, top + h / 2, r + 6, h / 2 + 6, 0, 0, 7); ctx.stroke();
+    }
+  }
+
   function drawMonk(p, t, isMe) {
-    const depth = 0.8 + (p.y - FLOOR_Y) / (H - FLOOR_Y) * 0.45;
+    const depth = (0.8 + (p.y - FLOOR_Y) / (H - FLOOR_Y) * 0.45) * SCALE;
     const moving = Math.hypot(p.tx - p.x, p.ty - p.y) > 2;
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.scale(depth, depth);
 
-    let bodyH = 1, headDY = 0, headDX = 0, bob = 0;
+    let bodyH = 1, headDY = 0, bob = 0, rot = 0, handsY = null, stretch = 0;
     const a = p.act, k = a ? Math.min(1, p.actT / ACT_LEN[a]) : 0;
+    const ease = (x) => x * x * (3 - 2 * x);
     if (a === 'bow') {
       const s = Math.sin(k * Math.PI);
-      bodyH = 1 - s * 0.38; headDY = s * 26; headDX = 0;
+      bodyH = 1 - s * 0.38; headDY = s * 26;
+    } else if (a === 'prostrate') {
+      // kneel -> lie flat with arms forward -> hold -> back up -> stand
+      const kneel = k < 0.15 ? ease(k / 0.15) : k > 0.88 ? ease((1 - k) / 0.12) : 1;
+      const lie = k < 0.15 ? 0 : k < 0.32 ? ease((k - 0.15) / 0.17) : k < 0.7 ? 1 : k < 0.88 ? ease((0.88 - k) / 0.18) : 0;
+      bodyH = 1 - kneel * 0.4 * (1 - lie);
+      headDY = kneel * 14 * (1 - lie);
+      rot = lie * p.face * 1.45;
+      stretch = lie;
     } else if (moving) {
       bob = Math.abs(Math.sin(t * 10)) * -3;
     } else {
       bob = Math.sin(t * 1.5 + p.x) * 0.8; // breathing
     }
 
-    // shadow
+    // shadow (stretches when lying down)
     ctx.fillStyle = 'rgba(0,0,0,.25)';
-    ctx.beginPath(); ctx.ellipse(0, 0, 24, 7, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(p.face * stretch * 34, 0, 24 + stretch * 38, 7, 0, 0, 7); ctx.fill();
+
+    ctx.rotate(rot);
 
     // robe
     ctx.save();
@@ -468,15 +572,32 @@
     ctx.beginPath();
     ctx.moveTo(-22, 0); ctx.quadraticCurveTo(-20, -38, -10, -44);
     ctx.lineTo(10, -44); ctx.quadraticCurveTo(20, -38, 22, 0); ctx.closePath(); ctx.fill();
-    // sash
     ctx.fillStyle = 'rgba(0,0,0,.18)';
     ctx.beginPath(); ctx.moveTo(-10, -44); ctx.lineTo(-2, -44); ctx.lineTo(16, -6); ctx.lineTo(8, -4); ctx.closePath(); ctx.fill();
     ctx.restore();
 
     const headY = -44 * bodyH - 18 + bob + headDY;
+
     // hands
-    if (a === 'palm' || a === 'beads' || a === 'bow') {
-      ctx.fillStyle = '#f1d3b3';
+    ctx.fillStyle = '#f1d3b3';
+    if (a === 'prostrate' && stretch > 0.5) {
+      // arms stretched past the head, palms up
+      ctx.beginPath(); ctx.ellipse(-6, headY - 26, 4, 7, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6, headY - 26, 4, 7, 0, 0, 7); ctx.fill();
+    } else if (a === 'incense') {
+      handsY = -28 * bodyH + bob - Math.sin(k * Math.PI) * 16;
+      ctx.beginPath(); ctx.ellipse(0, handsY, 4, 7, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#a8433a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, handsY - 4); ctx.lineTo(0, handsY - 30); ctx.stroke();
+      ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.arc(0, handsY - 31, 2.2, 0, 7); ctx.fill();
+      if (Math.random() < 0.25) smoke.push({ x: p.x, y: p.y + (handsY - 33) * depth, t: 0 });
+    } else if (a === 'wheel') {
+      // right arm reaching to the drum
+      const reach = Math.sin(k * Math.PI);
+      ctx.strokeStyle = p.robe; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(12, -32 + bob); ctx.lineTo(16 + reach * 8, -46 - reach * 8 + bob); ctx.stroke();
+      ctx.beginPath(); ctx.arc(17 + reach * 8, -48 - reach * 8 + bob, 4, 0, 7); ctx.fill();
+    } else if (a === 'palm' || a === 'beads' || a === 'bow' || a === 'prostrate') {
       ctx.beginPath(); ctx.ellipse(0, -26 * bodyH + bob, 4, 7, 0, 0, 7); ctx.fill();
     }
     if (a === 'beads') {
@@ -489,13 +610,13 @@
 
     // head
     ctx.fillStyle = '#f1d3b3';
-    ctx.beginPath(); ctx.arc(headDX, headY, 18, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(120,100,90,.15)';                 // shaved-head tint
-    ctx.beginPath(); ctx.arc(headDX, headY - 3, 16, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, headY, 18, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(120,100,90,.15)';
+    ctx.beginPath(); ctx.arc(0, headY - 3, 16, Math.PI, 0); ctx.fill();
     // face
-    const eyesClosed = a === 'palm' || a === 'bow';
+    const eyesClosed = a === 'palm' || a === 'bow' || a === 'prostrate' || a === 'incense';
     ctx.strokeStyle = ctx.fillStyle = '#3a2a22'; ctx.lineWidth = 1.6;
-    const fx = headDX + p.face * 2;
+    const fx = p.face * 2;
     if (eyesClosed) {
       ctx.beginPath(); ctx.arc(fx - 6, headY + 1, 3, 0.2, Math.PI - 0.2); ctx.stroke();
       ctx.beginPath(); ctx.arc(fx + 6, headY + 1, 3, 0.2, Math.PI - 0.2); ctx.stroke();
@@ -507,17 +628,17 @@
     ctx.beginPath(); ctx.arc(fx - 10, headY + 6, 3, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(fx + 10, headY + 6, 3, 0, 7); ctx.fill();
 
-    // palm glow
     if (a === 'palm') {
       ctx.strokeStyle = `rgba(255,215,140,${0.6 * Math.sin(k * Math.PI)})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(0, -30, 30 + k * 12, 0, 7); ctx.stroke();
     }
 
-    // name
+    // name stays upright and above the figure
+    ctx.rotate(-rot);
     ctx.font = '12px "Noto Serif SC", serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = isMe ? '#f3d58f' : 'rgba(243,234,216,.75)';
-    ctx.fillText(p.name, 0, headY - 26);
+    ctx.fillStyle = isMe ? '#f3d58f' : 'rgba(243,234,216,.8)';
+    ctx.fillText(p.name, 0, rot ? -40 : headY - 26);
     ctx.restore();
   }
 
@@ -542,8 +663,9 @@
       const m = Math.min(d, speed * dt);
       p.x += dx / d * m; p.y += dy / d * m;
       if (Math.abs(dx) > 1) p.face = dx > 0 ? 1 : -1;
-      if (p.act === 'bow') p.act = null; // walking cancels a bow
+      if (p.act === 'bow' || p.act === 'prostrate') p.act = null; // walking cancels a bow
     }
+    else if (p === me && me.pending != null) doWheel(me.pending);
     if (p.act) { p.actT += dt; if (p.actT > ACT_LEN[p.act]) p.act = null; }
   }
 
@@ -560,6 +682,7 @@
     if (keys.has('arrowup') || keys.has('w')) ky--;
     if (keys.has('arrowdown') || keys.has('s')) ky++;
     if (kx || ky) {
+      me.pending = null;
       const n = Math.hypot(kx, ky);
       me.tx = clamp(me.x + kx / n * 30, 40, W - 40);
       me.ty = clamp(me.y + ky / n * 30, FLOOR_Y, H - 30);
@@ -580,7 +703,10 @@
 
     drawHall(t);
     drawSmoke(dt);
-    [me, ...others.values()].sort((a, b) => a.y - b.y).forEach((p) => drawMonk(p, t, p === me));
+    wheels.forEach((w) => { w.a += w.vel * dt; w.vel *= Math.exp(-0.45 * dt); });
+    const items = wheels.map((w) => ({ y: WHEEL_Y, draw: () => drawWheel(w) }));
+    [me, ...others.values()].forEach((p) => items.push({ y: p.y, draw: () => drawMonk(p, t, p === me) }));
+    items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
     drawFloaters(dt);
 
     requestAnimationFrame(loop);
