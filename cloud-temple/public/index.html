@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>云寺 · Cloud Temple</title>
+  <meta name="description" content="一座在线的小寺。不说话，只合十、礼拜、转念珠。">
+  <meta name="theme-color" content="#1d1a17">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪷</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Entrance -->
+  <section id="gate">
+    <div class="gate-inner">
+      <h1>云寺</h1>
+      <p class="sub">一座不说话的小寺</p>
+      <p class="desc">这里没有聊天。<br>你只需要走进去，合十，礼拜，转一转念珠。</p>
+      <button id="enter">入 寺</button>
+      <p class="hint">建议戴上耳机 · 点击地面行走 · 键盘 WASD / 方向键</p>
+    </div>
+  </section>
+
+  <!-- Temple -->
+  <main id="temple" hidden>
+    <canvas id="scene"></canvas>
+
+    <header class="hud">
+      <div class="me"><span class="dot" id="myRobe"></span><span id="myName">…</span></div>
+      <div class="online"><span id="here">1</span> 人在此堂 · 共 <span id="online">1</span> 人</div>
+    </header>
+
+    <div class="merit">
+      <div><b id="myBows">0</b><small>今日礼拜</small></div>
+      <div><b id="myBeads">0</b><small>念珠</small></div>
+      <div><b id="allBows">0</b><small>寺中总礼拜</small></div>
+    </div>
+
+    <nav class="actions">
+      <button data-act="palm"><i>🙏</i><span>合十</span></button>
+      <button data-act="bow"><i>🧎</i><span>礼拜</span></button>
+      <button data-act="beads"><i>📿</i><span>念珠</span></button>
+      <button data-act="moktak"><i>🪵</i><span>木鱼</span></button>
+      <button id="soundBtn" class="toggle"><i>🔔</i><span>声音</span></button>
+    </nav>
+
+    <div id="toast"></div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
