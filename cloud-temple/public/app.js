@@ -127,6 +127,7 @@
 
   // ---------------- network ----------------
   function connect() {
+    if (window.CT_SOLO) return solo();
     let welcomed = false;
     let es;
     try { es = new EventSource('events'); } catch { return solo(); }
@@ -164,7 +165,7 @@
     me.name = A[Math.random() * A.length | 0] + N[Math.random() * N.length | 0];
     stats.bows = store.get('soloTotal', 0);
     renderMe(); renderStats();
-    toast('离线模式 · 只有你一人在堂中');
+    toast(window.CT_SOLO ? '预览模式 · 堂中只有你一人' : '离线模式 · 只有你一人在堂中');
   }
 
   function addOther(p) {
