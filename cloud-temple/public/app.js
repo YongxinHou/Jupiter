@@ -36,10 +36,14 @@
   let malaSize = MALAS.some((m) => m.n === store.get('mala', 0)) ? store.get('mala', 0) : 0; // 0 = not chosen yet
   let beadPos = store.get('beadPos', 0);
   let rounds = store.get('rounds', 0);
+  // beads drawn in the hand (a big mala is drawn with fewer, so it stays readable)
+  function beadsVisible(n) { return n <= 27 ? n : n <= 54 ? 27 : 36; }
+  function beadStep(n) { return Math.PI * 2 / beadsVisible(n || 108); }
   function clampIdx(i, n) { i = Number(i) | 0; return i >= 0 && i < n ? i : 0; }
 
   // ---------------- state ----------------
   const me = { id: null, token: null, name: '', robe: '#8a8f98', x: 500, y: 560, tx: 500, ty: 560, act: null, actT: 0, face: 1 };
+  me.mala = malaSize; me.incense = incenseChoice; me.beadRot = 0; me.beadTarget = 0;
   const others = new Map();
   const floaters = [];
   const smoke = [];
@@ -57,11 +61,34 @@
 
   function initAudio() {
     if (ac) return;
+    // iOS: route web audio as media playback so the silent switch doesn't mute it
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     ac = new (window.AudioContext || window.webkitAudioContext)();
     master = ac.createGain();
-    master.gain.value = 0.8;
+    master.gain.value = 1;
     master.connect(ac.destination);
+    unlockMedia();
   }
+
+  // playing a (silent) media element inside the tap also switches older iOS to the playback audio session
+  function unlockMedia() {
+    try {
+      const rate = 8000, len = 800, buf = new ArrayBuffer(44 + len * 2), v = new DataView(buf);
+      const w = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      w(0, 'RIFF'); v.setUint32(4, 36 + len * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, len * 2, true);
+      const el = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+      el.setAttribute('playsinline', '');
+      el.play().catch(() => {});
+    } catch {}
+  }
+
+  // browsers may suspend audio (tab switch, iframe focus); wake it on any tap
+  function wakeAudio() { if (ac && ac.state !== 'running') ac.resume().catch(() => {}); }
+  addEventListener('pointerdown', wakeAudio, true);
+  addEventListener('keydown', wakeAudio, true);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeAudio(); });
 
   function env(g, t, peak, decay) {
     g.gain.setValueAtTime(0.0001, t);
@@ -126,11 +153,11 @@
     g.gain.linearRampToValueAtTime(1, ac.currentTime + 3);
     g.connect(master);
     const lp = ac.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 400;
+    lp.type = 'lowpass'; lp.frequency.value = 700;
     lp.connect(g);
     const nodes = [];
     // low drone, slightly detuned for a slow beating
-    [[98, 0.05], [98.4, 0.05], [147, 0.025]].forEach(([f, a]) => {
+    [[98, 0.05], [98.4, 0.05], [147, 0.03], [196, 0.025], [294, 0.012]].forEach(([f, a]) => {
       const o = ac.createOscillator(), og = ac.createGain();
       o.frequency.value = f; og.gain.value = a;
       o.connect(og).connect(lp); o.start(); nodes.push(o);
@@ -179,7 +206,7 @@
       if (!o) return;
       startAct(o, d.act);
       if (d.act === 'incense') { o.incense = clampIdx(d.n, INCENSE.length); addStick(o.incense); }
-      if (d.act === 'beads') o.mala = d.n;
+      if (d.act === 'beads') { o.mala = d.n; o.beadTarget = (o.beadTarget || 0) + beadStep(d.n); }
       if (d.act === 'wheel' && wheels[d.n]) spinWheel(d.n);
     });
     es.addEventListener('stats', (e) => { Object.assign(stats, JSON.parse(e.data)); renderStats(); });
@@ -270,7 +297,7 @@
     if (act !== 'beads' && me.act && me.actT < ACT_LEN[me.act] * 0.6) return; // let animation breathe
     startAct(me, act);
     if (act === 'incense') me.incense = n;
-    if (act === 'beads') me.mala = malaSize;
+    if (act === 'beads') { me.mala = malaSize; me.beadTarget += beadStep(malaSize); vizTarget -= Math.PI * 2 / malaSize; }
     post({ type: 'act', act, n: act === 'incense' ? n : act === 'beads' ? malaSize : 0 });
     if (act === 'bow' || act === 'prostrate') {
       myBows++; stats.bows++;
@@ -335,6 +362,7 @@
     if (mode === 'mala' && !malaSize) { sheetPick = MALAS.length - 1; setMala(MALAS[sheetPick].n); }
     $('#sheetBrand').hidden = mode !== 'incense';
     $('#sheet').classList.toggle('clear', mode === 'mala');  // keep the monk visible while counting
+    $('#malaViz').hidden = mode !== 'mala';
     $('#sheetTitle').textContent = mode === 'incense' ? '选一炷艾香' : '选一串念珠';
     const opts = $('#sheetOpts');
     opts.innerHTML = '';
@@ -355,6 +383,40 @@
     renderSheet();
     $('#sheet').hidden = false;
     $('#sheetGo').focus();
+    if (mode === 'mala') { vizRot = vizTarget = -beadPos * Math.PI * 2 / malaSize; requestAnimationFrame(drawViz); }
+  }
+
+  let vizRot = 0, vizTarget = 0;
+  function drawViz() {
+    if (sheetMode !== 'mala') return;
+    requestAnimationFrame(drawViz);
+    const cv = $('#malaViz'), g = cv.getContext('2d');
+    const dpr = Math.min(devicePixelRatio || 1, 2), size = cv.clientWidth || 180;
+    if (cv.width !== size * dpr) { cv.width = cv.height = size * dpr; }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, size, size);
+    vizRot += (vizTarget - vizRot) * 0.18;
+    const n = malaSize, c = size / 2, R = size * 0.38;
+    const br = Math.min(size * 0.06, (Math.PI * 2 * R / n) * 0.42);
+    // string
+    g.strokeStyle = 'rgba(217,167,74,.35)'; g.lineWidth = 1;
+    g.beginPath(); g.arc(c, c, R, 0, 7); g.stroke();
+    for (let i = 0; i < n; i++) {
+      const ang = -Math.PI / 2 + i * Math.PI * 2 / n + vizRot;
+      const x = c + Math.cos(ang) * R, y = c + Math.sin(ang) * R;
+      const guru = i === 0, r = guru ? br * 1.5 : br;
+      const grad = g.createRadialGradient(x - r * 0.4, y - r * 0.4, r * 0.1, x, y, r);
+      grad.addColorStop(0, guru ? '#f3d58f' : '#a86b43'); grad.addColorStop(1, guru ? '#a8782a' : '#4a2c1a');
+      g.fillStyle = grad; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+      if (guru) {                                   // tassel on the guru bead
+        g.strokeStyle = '#b44'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+        g.lineTo(x + Math.cos(ang) * (r + 12), y + Math.sin(ang) * (r + 12)); g.stroke();
+      }
+    }
+    // thumb marker at the top: the bead under it is the one just counted
+    g.fillStyle = '#d9a74a';
+    g.beginPath(); g.moveTo(c, c - R - br - 4); g.lineTo(c - 6, c - R - br - 13); g.lineTo(c + 6, c - R - br - 13); g.closePath(); g.fill();
   }
   function renderSheet() {
     [...$('#sheetOpts').children].forEach((b, i) => b.setAttribute('aria-pressed', i === sheetPick));
@@ -369,7 +431,7 @@
     }
   }
   function setMala(n) {
-    if (n !== malaSize) { malaSize = n; beadPos = 0; rounds = 0; }
+    if (n !== malaSize) { malaSize = n; beadPos = 0; rounds = 0; vizRot = vizTarget = 0; }
     me.mala = malaSize;
     store.set('mala', malaSize); store.set('beadPos', beadPos); store.set('rounds', rounds);
     renderStats();
@@ -693,6 +755,32 @@
     ctx.restore();
   }
 
+  // a loop of beads hanging from the joined hands; turns one bead per count
+  function drawHandMala(p, bob, pulse) {
+    const vis = beadsVisible(p.mala), rot = p.beadRot || 0;
+    const rx = 8 + vis * 0.3, ry = rx * 0.75, cy = -26 + bob + ry * 0.9;
+    const size = vis <= 21 ? 2.8 : 2.2;
+    const beads = [];
+    for (let i = 0; i < vis; i++) {
+      const ang = Math.PI / 2 + i / vis * Math.PI * 2 + rot;
+      beads.push({ i, x: Math.sin(ang) * rx, y: cy - Math.cos(ang) * ry, front: Math.cos(ang) < 0 });
+    }
+    beads.sort((a, b) => a.front - b.front).forEach((b) => {
+      ctx.fillStyle = b.i === 0 ? '#d9a74a' : b.front ? '#6b4128' : '#4a2c1a';
+      ctx.beginPath(); ctx.arc(b.x, b.y, size, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,230,190,.35)';
+      ctx.beginPath(); ctx.arc(b.x - size * 0.35, b.y - size * 0.35, size * 0.35, 0, 7); ctx.fill();
+    });
+    // the bead under the thumb glows on each count
+    if (pulse > 0) {
+      ctx.strokeStyle = `rgba(255,215,140,${pulse * 0.8})`; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, cy - ry, size + 3, 0, 7); ctx.stroke();
+    }
+    // hands drawn again over the top of the loop
+    ctx.fillStyle = '#f1d3b3';
+    ctx.beginPath(); ctx.ellipse(0, -26 + bob, 4, 7, 0, 0, 7); ctx.fill();
+  }
+
   function drawMonk(p, t, isMe) {
     const depth = (0.8 + (p.y - FLOOR_Y) / (H - FLOOR_Y) * 0.45) * SCALE;
     const moving = Math.hypot(p.tx - p.x, p.ty - p.y) > 2;
@@ -759,19 +847,10 @@
       ctx.strokeStyle = p.robe; ctx.lineWidth = 7; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(12, -32 + bob); ctx.lineTo(16 + reach * 8, -46 - reach * 8 + bob); ctx.stroke();
       ctx.beginPath(); ctx.arc(17 + reach * 8, -48 - reach * 8 + bob, 4, 0, 7); ctx.fill();
-    } else if (a === 'palm' || a === 'beads' || a === 'bow' || a === 'prostrate') {
+    } else if (a === 'palm' || a === 'beads' || a === 'bow' || a === 'prostrate' || (!a && p.mala)) {
       ctx.beginPath(); ctx.ellipse(0, -26 * bodyH + bob, 4, 7, 0, 0, 7); ctx.fill();
     }
-    if (a === 'beads') {
-      const n = p.mala || 108;
-      const vis = Math.max(9, Math.min(36, Math.round(n / 3)));   // drawn beads
-      const r = 6 + vis * 0.4;
-      for (let i = 0; i < vis; i++) {
-        const ang = i / vis * Math.PI * 2 + k * 2.5;
-        ctx.fillStyle = i === 0 ? '#c8963f' : '#5b3a26';
-        ctx.beginPath(); ctx.arc(Math.cos(ang) * r, -20 + bob + r * 0.35 + Math.sin(ang) * r * 0.55, n > 54 ? 1.8 : 2.2, 0, 7); ctx.fill();
-      }
-    }
+    if (p.mala && (!a || a === 'beads' || a === 'palm')) drawHandMala(p, bob, a === 'beads' ? Math.sin(k * Math.PI) : 0);
 
     // head
     ctx.fillStyle = '#f1d3b3';
@@ -832,6 +911,7 @@
     }
     else if (p === me && me.pending != null) doWheel(me.pending);
     if (p.act) { p.actT += dt; if (p.actT > ACT_LEN[p.act]) p.act = null; }
+    if (p.beadTarget != null) p.beadRot = (p.beadRot || 0) + (p.beadTarget - (p.beadRot || 0)) * Math.min(1, dt * 12);
   }
 
   let last = performance.now();
