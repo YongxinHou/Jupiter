@@ -111,3 +111,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #sheet.clear { background: transparent; }
 #malaViz { width: 180px; height: 180px; justify-self: center; }
 #malaViz[hidden] { display: none; }
+
+/* close-up label over the altar */
+#altarInfo { position: absolute; left: 50%; transform: translate(-50%, calc(-100% + 6px)); display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 6px 14px; max-width: calc(100% - 32px); padding: 8px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  font-size: 13px; color: var(--ink); backdrop-filter: blur(6px); pointer-events: none; opacity: 0; transition: opacity .4s, transform .4s; }
+#altarInfo.show { opacity: 1; transform: translate(-50%, -100%); }
+#altarInfo b { color: var(--gold); font-weight: 600; }
+#altarInfo span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+#altarInfo i { width: 3px; height: 14px; border-radius: 1px; display: inline-block; }
+#altarInfo .brand { font-size: 14px; }

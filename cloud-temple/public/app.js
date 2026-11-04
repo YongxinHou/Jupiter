@@ -498,8 +498,10 @@
 
   canvas.addEventListener('pointerdown', (e) => {
     const r = canvas.getBoundingClientRect();
-    const wx = (e.clientX - r.left - view.ox) / view.s + view.cx;
-    const wy = (e.clientY - r.top - view.oy) / view.s;
+    const bx = view.bx + (e.clientX - r.left - view.ax) / view.z;
+    const by = view.by + (e.clientY - r.top - view.ay) / view.z;
+    const wx = (bx - view.ox) / view.s + view.cx;
+    const wy = (by - view.oy) / view.s;
     const hit = wheels.findIndex((w) => Math.abs(wx - w.x) < 20 && wy > WHEEL_Y - 75 && wy < WHEEL_Y + 10);
     if (hit >= 0) { initAudio(); goToWheel(hit); return; }
     me.pending = null;
@@ -510,7 +512,34 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // ---------------- view ----------------
-  const view = { s: 1, ox: 0, oy: 0, cx: 0, vw: W, dpr: 1 };
+  const view = { s: 1, ox: 0, oy: 0, cx: 0, vw: W, dpr: 1, top: 0, availH: H, cw: W, z: 1, ax: 0, ay: 0, bx: 0, by: 0 };
+
+  // ---- zoom toward the altar when the player walks up to it ----
+  const ALTAR = { x: 500, y: 300 };   // world point the close-up centres on (incense burner)
+  const ZOOM_MAX = 2.6;
+  let altarCount = 3, infoKey = '';
+  // close-up label: how many sticks are burning, and of which wanche incense
+  function renderAltarInfo(zt) {
+    const el = $('#altarInfo');
+    const show = zt > 0.45;
+    el.classList.toggle('show', show);
+    if (!show) return;
+    el.style.top = `${view.top + view.availH - 14}px`;
+    const counts = INCENSE.map((inc, i) => [inc, sticks.filter((s) => s.c === i).length]).filter(([, n]) => n);
+    const key = altarCount + '|' + counts.map(([inc, n]) => inc.name + n).join();
+    if (key === infoKey) return;
+    infoKey = key;
+    el.innerHTML = `<b>炉中 ${altarCount} 炷香</b>` + counts.map(([inc, n]) =>
+      `<span><i style="background:${inc.color}"></i>${inc.name} × ${n}</span>`).join('') +
+      '<em class="brand">wanche</em>';
+  }
+  function zoomTarget() {
+    const d = Math.hypot((me.x - ALTAR.x) * 0.8, (me.y - FLOOR_Y) * 1.6);
+    return 1 + (ZOOM_MAX - 1) * clamp(1 - (d - 30) / 190, 0, 1);
+  }
+  // base (unzoomed) screen position of a world point
+  const baseX = (wx) => view.ox + (wx - view.cx) * view.s;
+  const baseY = (wy) => view.oy + wy * view.s;
   function resize() {
     view.dpr = Math.min(devicePixelRatio || 1, 2);
     const cw = innerWidth, ch = innerHeight;
@@ -525,6 +554,7 @@
     view.vw = Math.min(W, cw / s);
     view.ox = Math.max(0, (cw - W * s) / 2);
     view.oy = top + (availH - H * s) / 2;
+    view.top = top; view.availH = availH; view.cw = cw;
   }
   addEventListener('resize', resize);
 
@@ -537,7 +567,7 @@
     return ['#4a3d6b', '#e08a5c', false];
   }
 
-  function drawHall(t) {
+  function drawHall(t, zt = 0) {
     // back wall
     const wall = ctx.createLinearGradient(0, 0, 0, FLOOR_Y);
     wall.addColorStop(0, '#3a2c22'); wall.addColorStop(1, '#4d3a2b');
@@ -616,6 +646,7 @@
     for (let i = sticks.length - 1; i >= 0; i--) if (now - sticks[i].born > STICK_LIFE) sticks.splice(i, 1);
     const all = [{ off: -6, burn: 0 }, { off: 0, burn: 0 }, { off: 6, burn: 0 }]
       .concat(sticks.map((s) => ({ off: s.off, burn: (now - s.born) / STICK_LIFE, color: INCENSE[s.c]?.color })));
+    altarCount = all.length;
     all.forEach((s) => {
       const tipX = 500 + s.off * 1.3, tipY = 252 + s.burn * 18;
       ctx.strokeStyle = s.color || '#a8433a'; ctx.lineWidth = s.color ? 2 : 1.5;
@@ -945,17 +976,36 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1d1a17';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(view.s * view.dpr, 0, 0, view.s * view.dpr, (view.ox - view.cx * view.s) * view.dpr, view.oy * view.dpr);
+    // zoom: scale about the burner, sliding it toward the middle of the scene area
+    view.z += (zoomTarget() - view.z) * Math.min(1, dt * 2.5);
+    const zt = (view.z - 1) / (ZOOM_MAX - 1);
+    view.bx = baseX(ALTAR.x); view.by = baseY(ALTAR.y);
+    view.ax = view.bx + (view.cw / 2 - view.bx) * zt;
+    view.ay = view.by + (view.top + view.availH * 0.4 - view.by) * zt;
+    const sz = view.s * view.z;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, view.top * view.dpr, canvas.width, view.availH * view.dpr); ctx.clip();
+    ctx.setTransform(sz * view.dpr, 0, 0, sz * view.dpr,
+      (view.ax + (view.ox - view.cx * view.s - view.bx) * view.z) * view.dpr,
+      (view.ay + (view.oy - view.by) * view.z) * view.dpr);
+    renderAltarInfo(zt);
 
-    drawHall(t);
+    drawHall(t, zt);
     drawSmoke(dt);
     // a spun wheel coasts down to a slow idle turn, so wheels are always moving
     wheels.forEach((w) => { w.a += w.vel * dt; w.vel = WHEEL_IDLE + (w.vel - WHEEL_IDLE) * Math.exp(-0.3 * dt); });
     const items = wheels.map((w) => ({ y: WHEEL_Y, draw: () => drawWheel(w) }));
-    [me, ...others.values()].forEach((p) => items.push({ y: p.y, draw: () => drawMonk(p, t, p === me) }));
+    [me, ...others.values()].forEach((p) => items.push({ y: p.y, draw: () => {
+      // in the close-up, monks standing in front of the altar go see-through so the burner stays visible
+      const blocking = Math.abs(p.x - ALTAR.x) < 110 && p.y < 450;
+      ctx.globalAlpha = blocking ? 1 - 0.7 * zt : 1;
+      drawMonk(p, t, p === me);
+      ctx.globalAlpha = 1;
+    } }));
     if (me.mokShow > 0) items.push({ y: me.y + 0.5, draw: drawMoktak });
     items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
     drawFloaters(dt);
+    ctx.restore();
 
     requestAnimationFrame(loop);
   }
