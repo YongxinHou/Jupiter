@@ -105,3 +105,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .sheet-go:hover { filter: brightness(1.08); }
 @media (max-width: 680px) { #sheet { padding-bottom: calc(max(16px, env(safe-area-inset-bottom)) + 150px); } }
 @media (max-width: 400px) { .opts { gap: 5px; } .opt b { font-size: 14px; } }
+.sheet-note .count { display: block; font-size: 30px; color: var(--gold); font-weight: 600; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+.sheet-note .count span { font-size: 16px; color: var(--muted); font-weight: 400; }
+.sheet-go:active { transform: scale(.98); }
+#sheet.clear { background: transparent; }

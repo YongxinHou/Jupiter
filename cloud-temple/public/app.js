@@ -45,7 +45,8 @@
   const smoke = [];
   const SCALE = 1.5;                // character size multiplier
   const WHEEL_Y = 350;              // prayer wheels stand along the back of the floor
-  const wheels = [225, 265, 305, 345, 655, 695, 735, 775].map((x) => ({ x, a: Math.random() * 6, vel: 0 }));
+  const WHEEL_IDLE = 0.6;           // rad/s
+  const wheels = [225, 265, 305, 345, 655, 695, 735, 775].map((x) => ({ x, a: Math.random() * 6, vel: WHEEL_IDLE }));
   const sticks = [];                // incense in the burner: { off, born, c }
   const STICK_LIFE = 90;            // seconds an incense stick burns
   let stats = { bows: 0, here: 1, online: 1 };
@@ -226,7 +227,7 @@
   }
 
   function spinWheel(i) {
-    wheels[i].vel = Math.min(wheels[i].vel + 7, 14);
+    wheels[i].vel = Math.min(wheels[i].vel + 10, 24);
   }
 
   function nearestWheel() {
@@ -265,8 +266,8 @@
       return;
     }
     if (act === 'incense' && n === undefined) return openSheet('incense');
-    if (act === 'beads' && !malaSize) return openSheet('mala');
-    if (me.act && me.actT < ACT_LEN[me.act] * 0.6) return; // let animation breathe
+    if (act === 'beads' && n === undefined) return openSheet('mala');
+    if (act !== 'beads' && me.act && me.actT < ACT_LEN[me.act] * 0.6) return; // let animation breathe
     startAct(me, act);
     if (act === 'incense') me.incense = n;
     if (act === 'beads') me.mala = malaSize;
@@ -331,8 +332,9 @@
   function openSheet(mode) {
     sheetMode = mode;
     sheetPick = mode === 'incense' ? incenseChoice : Math.max(0, MALAS.findIndex((m) => m.n === malaSize));
-    if (mode === 'mala' && !malaSize) sheetPick = MALAS.length - 1;
+    if (mode === 'mala' && !malaSize) { sheetPick = MALAS.length - 1; setMala(MALAS[sheetPick].n); }
     $('#sheetBrand').hidden = mode !== 'incense';
+    $('#sheet').classList.toggle('clear', mode === 'mala');  // keep the monk visible while counting
     $('#sheetTitle').textContent = mode === 'incense' ? '选一炷艾香' : '选一串念珠';
     const opts = $('#sheetOpts');
     opts.innerHTML = '';
@@ -343,7 +345,11 @@
       b.innerHTML = mode === 'incense'
         ? `<span class="stick" style="--c:${o.color}"></span><b>${o.name}</b><small>${o.tone}</small>`
         : `<span class="num">${o.n}</span><small>${o.label}</small>`;
-      b.addEventListener('click', () => { sheetPick = i; renderSheet(); });
+      b.addEventListener('click', () => {
+        sheetPick = i;
+        if (mode === 'mala') setMala(o.n);
+        renderSheet();
+      });
       opts.appendChild(b);
     });
     renderSheet();
@@ -357,10 +363,16 @@
       $('#sheetNote').textContent = `${o.name} · ${o.note}`;
       $('#sheetGo').textContent = `点一炷${o.name}香`;
     } else {
-      const o = MALAS[sheetPick];
-      $('#sheetNote').textContent = `${o.n} 颗 · 每点一次「念珠」拨一颗，拨满一圈响一声钟`;
-      $('#sheetGo').textContent = `就用这串`;
+      $('#sheetNote').innerHTML = `<b class="count">${beadPos}<span> / ${malaSize}</span></b>` +
+        (rounds ? `已拨满 ${rounds} 圈 · ` : '') + '拨满一圈响一声钟';
+      $('#sheetGo').textContent = '拨一颗';
     }
+  }
+  function setMala(n) {
+    if (n !== malaSize) { malaSize = n; beadPos = 0; rounds = 0; }
+    me.mala = malaSize;
+    store.set('mala', malaSize); store.set('beadPos', beadPos); store.set('rounds', rounds);
+    renderStats();
   }
   function closeSheet() { $('#sheet').hidden = true; sheetMode = null; }
   $('#sheetGo').addEventListener('click', () => {
@@ -369,13 +381,8 @@
       closeSheet();
       doAct('incense', incenseChoice);
     } else {
-      const n = MALAS[sheetPick].n;
-      if (n !== malaSize) { malaSize = n; beadPos = 0; rounds = 0; }
-      store.set('mala', malaSize); store.set('beadPos', beadPos); store.set('rounds', rounds);
-      me.mala = malaSize;
-      closeSheet();
-      toast(`换上一串 ${n} 颗的念珠`);
-      renderStats();
+      doAct('beads', malaSize);   // sheet stays open: keep tapping to count
+      renderSheet();
     }
   });
   $('#sheetX').addEventListener('click', closeSheet);
@@ -411,7 +418,11 @@
   addEventListener('keydown', (e) => {
     if ($('#temple').hidden) return;
     const k = e.key.toLowerCase();
-    if (!$('#sheet').hidden) { if (k === 'escape') closeSheet(); return; }
+    if (!$('#sheet').hidden) {
+      if (k === 'escape') closeSheet();
+      if (sheetMode === 'mala' && (k === ' ' || k === '4')) { e.preventDefault(); $('#sheetGo').click(); }
+      return;
+    }
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(k)) { keys.add(k); e.preventDefault(); }
     if (k === '1') doAct('palm');
     if (k === '2' || k === ' ') { doAct('bow'); e.preventDefault(); }
@@ -601,27 +612,48 @@
 
   function drawWheel(w) {
     const x = w.x, b = WHEEL_Y;
+    const r = 16, h = 56, top = b - 74;
+    const PANELS = 8, step = Math.PI * 2 / PANELS;
     ctx.fillStyle = 'rgba(0,0,0,.25)';
-    ctx.beginPath(); ctx.ellipse(x, b, 16, 5, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3b2a1e'; ctx.fillRect(x - 2.5, b - 14, 5, 14);          // post
-    const top = b - 66, h = 50, r = 14;
-    ctx.fillStyle = '#b8862f'; ctx.fillRect(x - r, top, r * 2, h);           // drum
-    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x + r * 0.35, top, r * 0.65, h);
-    for (let i = 0; i < 6; i++) {                                              // spinning script bands
-      const ang = w.a + i * Math.PI / 3, c = Math.cos(ang);
-      if (c <= 0) continue;
-      const sx = x + Math.sin(ang) * r * 0.85;
-      ctx.fillStyle = `rgba(90,40,20,${0.35 + c * 0.5})`;
-      ctx.fillRect(sx - c * 1.6, top + 10, c * 3.2, h - 20);
+    ctx.beginPath(); ctx.ellipse(x, b, 18, 5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3b2a1e'; ctx.fillRect(x - 3, b - 18, 6, 18);            // post
+    ctx.fillRect(x - 1.5, top - 10, 3, h + 12);                               // axle
+
+    // drum: panels on a cylinder, projected to screen; alternating colours make the turn obvious
+    for (let i = 0; i < PANELS; i++) {
+      const a0 = w.a + i * step, a1 = a0 + step, mid = a0 + step / 2;
+      if (Math.cos(mid) <= -0.05) continue;                                  // back side
+      const x0 = x + Math.sin(a0) * r, x1 = x + Math.sin(a1) * r;
+      const light = 0.55 + 0.45 * Math.max(0, Math.cos(mid - 0.5));           // light from front-left
+      const base = i % 2 ? [192, 57, 43] : [217, 167, 74];
+      ctx.fillStyle = `rgb(${base.map((c) => Math.round(c * light)).join(',')})`;
+      ctx.fillRect(Math.min(x0, x1), top + 7, Math.abs(x1 - x0) + 0.6, h - 14);
+      // a syllable mark on each panel
+      const cx = x + Math.sin(mid) * r, wMark = Math.abs(x1 - x0) * 0.5;
+      if (wMark > 1) {
+        ctx.fillStyle = i % 2 ? 'rgba(255,220,150,.85)' : 'rgba(110,40,20,.85)';
+        ctx.fillRect(cx - wMark / 2, top + 18, wMark, 4);
+        ctx.fillRect(cx - wMark / 4, top + 25, wMark / 2, 14);
+        ctx.fillRect(cx - wMark / 2, top + 42, wMark, 4);
+      }
     }
-    ctx.fillStyle = '#9e3b2c'; ctx.fillRect(x - r, top, r * 2, 6); ctx.fillRect(x - r, top + h - 6, r * 2, 6);
+    // rims and cap
+    ctx.fillStyle = '#7a2e22'; ctx.fillRect(x - r - 1, top, r * 2 + 2, 7); ctx.fillRect(x - r - 1, top + h - 7, r * 2 + 2, 7);
     ctx.fillStyle = '#d9a74a';
-    ctx.beginPath(); ctx.ellipse(x, top, r, 4, 0, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(x, top - 6, 3.5, 0, 7); ctx.fill();             // finial
-    ctx.fillRect(x - 0.8, top - 6, 1.6, 6);
-    if (w.vel > 1) {                                                           // motion glow
-      ctx.strokeStyle = `rgba(255,215,140,${Math.min(0.5, w.vel / 28)})`; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(x, top + h / 2, r + 6, h / 2 + 6, 0, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(x, top, r + 1, 4.5, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, top - 8, 4, 0, 7); ctx.fill();               // finial
+    // hanging weight swings out with speed
+    const swing = Math.min(1, (w.vel - WHEEL_IDLE) / 12);
+    const wx = x + Math.sin(w.a) * (r + 4 + swing * 8), wy = top + h * 0.45 - swing * 10;
+    ctx.strokeStyle = '#3b2a1e'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(x + Math.sin(w.a) * r, top + 10); ctx.lineTo(wx, wy); ctx.stroke();
+    if (Math.cos(w.a) > -0.3) { ctx.fillStyle = '#5b3a26'; ctx.beginPath(); ctx.arc(wx, wy, 3, 0, 7); ctx.fill(); }
+    // motion streaks while spinning fast
+    if (w.vel > 3) {
+      ctx.strokeStyle = `rgba(255,215,140,${Math.min(0.6, w.vel / 30)})`; ctx.lineWidth = 2;
+      [-1, 1].forEach((sd) => {
+        ctx.beginPath(); ctx.arc(x, top + h / 2, r + 7, sd > 0 ? -0.5 : Math.PI - 0.5, sd > 0 ? 0.5 : Math.PI + 0.5); ctx.stroke();
+      });
     }
   }
 
@@ -837,7 +869,8 @@
 
     drawHall(t);
     drawSmoke(dt);
-    wheels.forEach((w) => { w.a += w.vel * dt; w.vel *= Math.exp(-0.45 * dt); });
+    // a spun wheel coasts down to a slow idle turn, so wheels are always moving
+    wheels.forEach((w) => { w.a += w.vel * dt; w.vel = WHEEL_IDLE + (w.vel - WHEEL_IDLE) * Math.exp(-0.3 * dt); });
     const items = wheels.map((w) => ({ y: WHEEL_Y, draw: () => drawWheel(w) }));
     [me, ...others.values()].forEach((p) => items.push({ y: p.y, draw: () => drawMonk(p, t, p === me) }));
     if (me.mokShow > 0) items.push({ y: me.y + 0.5, draw: drawMoktak });
